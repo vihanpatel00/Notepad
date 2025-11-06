@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simple Text Editor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; background: linear-gradient(135deg,#f5f7fa 0%,#c3cfe2 100%); min-height:100vh; margin:0; padding:20px; }
+    .editor-container { max-width:900px; margin:0 auto; background:white; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.1); overflow:hidden; transition:transform 0.3s; }
+    .editor-container:hover{ transform:translateY(-5px); }
+    .toolbar { background:linear-gradient(90deg,#4f46e5 0%,#7c3aed 100%); padding:15px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .toolbar button, .toolbar select { background: rgba(255,255,255,0.2); border:none; color:white; padding:8px 12px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:6px; }
+    .toolbar button:hover, .toolbar select:hover { background: rgba(255,255,255,0.3); transform:translateY(-2px); }
+    .editor { min-height:400px; padding:25px; outline:none; font-size:16px; line-height:1.6; color:#333; }
+    .word-count { background:#f8fafc; padding:10px 25px; text-align:right; color:#64748b; font-size:14px; border-top:1px solid #e2e8f0; }
+    @media (max-width:768px){ .toolbar { padding:10px } .editor { padding:15px; min-height:300px } }
+    .active-format { background: rgba(255,255,255,0.4) !important; }
+  </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+  <div class="editor-container">
+    <div class="toolbar">
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('bold')" title="Bold"><i class="fas fa-bold"></i></button>
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('italic')" title="Italic"><i class="fas fa-italic"></i></button>
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('underline')" title="Underline"><i class="fas fa-underline"></i></button>
+
+      <select onmousedown="saveSelection()" onchange="formatHeading(this.value)" title="Heading">
+        <option value="">Normal Text</option>
+        <option value="h1">Heading 1</option>
+        <option value="h2">Heading 2</option>
+        <option value="h3">Heading 3</option>
+      </select>
+
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('insertUnorderedList')" title="Bullet List"><i class="fas fa-list-ul"></i></button>
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('insertOrderedList')" title="Numbered List"><i class="fas fa-list-ol"></i></button>
+
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('justifyLeft')" title="Align Left"><i class="fas fa-align-left"></i></button>
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('justifyCenter')" title="Align Center"><i class="fas fa-align-center"></i></button>
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('justifyRight')" title="Align Right"><i class="fas fa-align-right"></i></button>
+
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('undo')" title="Undo"><i class="fas fa-undo"></i></button>
+      <button onmousedown="saveSelection()" onclick="restoreSelectionAndFormat('redo')" title="Redo"><i class="fas fa-redo"></i></button>
+
+      <button onclick="downloadText()" title="Save as .txt" style="margin-left:auto;">
+        <i class="fas fa-download"></i> Save
+      </button>
+
+      <button onclick="downloadHTML()" title="Export HTML" style="margin-left:8px;">
+        <i class="fas fa-file-code"></i> Export HTML
+      </button>
+    </div>
+
+    <div id="editor" class="editor" contenteditable="true" oninput="handleInput()">
+      <p>Start typing your content here...</p>
+      <p>You can use the toolbar above to format your text.</p>
+    </div>
+
+    <div class="word-count">
+      Words: <span id="wordCount">0</span> | Characters: <span id="charCount">0</span>
+    </div>
+  </div>
+
+  <script>
+    // store a cloned Range here when the user starts interacting with toolbar
+    let savedRange = null;
+
+    function saveSelection() {
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          savedRange = sel.getRangeAt(0).cloneRange();
+        }
+      } catch (e) {
+        // ignore
+        savedRange = null;
+      }
+    }
+
+    function restoreSelection() {
+      const editor = document.getElementById('editor');
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      if (savedRange) {
+        sel.addRange(savedRange);
+      } else {
+        // fallback: focus editor
+        editor.focus();
+      }
+    }
+
+    function restoreSelectionAndFormat(command, value = null) {
+      restoreSelection();
+      document.execCommand(command, false, value);
+      document.getElementById('editor').focus();
+      updateWordCount();
+    }
+
+    function formatHeading(val) {
+      restoreSelection();
+      if (!val) {
+        document.execCommand('formatBlock', false, '<p>');
+      } else {
+        document.execCommand('formatBlock', false, '<' + val + '>');
+      }
+      document.getElementById('editor').focus();
+      updateWordCount();
+    }
+
+    function handleInput() {
+      updateWordCount();
+      saveToLocal();
+    }
+
+    function updateWordCount() {
+      const editor = document.getElementById('editor');
+      // innerText gives visible text without tags
+      const text = (editor.innerText || editor.textContent || '').replace(/\u200B/g, '');
+      const trimmed = text.trim();
+      const words = trimmed === '' ? [] : trimmed.split(/\s+/).filter(w => w.length > 0);
+      document.getElementById('wordCount').textContent = words.length;
+      document.getElementById('charCount').textContent = text.length;
+    }
+
+    // button download as .txt
+    function downloadText() {
+      const editor = document.getElementById('editor');
+      // plain text
+      const text = editor.innerText || editor.textContent || '';
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'document.txt';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // export HTML (download as .html)
+    function downloadHTML() {
+      const editor = document.getElementById('editor');
+      const html = '<!doctype html>\n<html>\n<head><meta charset="utf-8"><title>Exported Document</title></head>\n<body>' + editor.innerHTML + '</body>\n</html>';
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'document.html';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // Ctrl+S to save (prevent browser default)
+    document.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        downloadText();
+      }
+    });
+
+    // Active button animation
+    document.querySelectorAll('.toolbar button').forEach(button => {
+      button.addEventListener('click', function() {
+        document.querySelectorAll('.toolbar button').forEach(btn => btn.classList.remove('active-format'));
+        this.classList.add('active-format');
+        setTimeout(() => this.classList.remove('active-format'), 250);
+      });
+    });
+
+    // autosave to localStorage
+    const STORAGE_KEY = 'notepad_content_v1';
+    function saveToLocal() {
+      try {
+        const editor = document.getElementById('editor');
+        localStorage.setItem(STORAGE_KEY, editor.innerHTML);
+      } catch (e) {
+        // ignore quota errors
+      }
+    }
+
+    function loadFromLocal() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        const editor = document.getElementById('editor');
+        if (saved && saved.trim() !== '') {
+          editor.innerHTML = saved;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      loadFromLocal();
+      updateWordCount();
+    });
+  </script>
+</body>
+</html>
